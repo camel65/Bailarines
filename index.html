@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pista de Baile - Parejas en Bucle</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            cursor: default;
+        }
+
+        /* Botón de Inicio Blanco */
+        #btn-inicio {
+            padding: 18px 45px;
+            font-size: 1.6rem;
+            color: #ffffff;
+            background: transparent;
+            border: 2px solid #ffffff;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.4);
+            z-index: 10;
+        }
+
+        #btn-inicio:hover {
+            background-color: #ffffff;
+            color: #000000;
+            box-shadow: 0 0 35px rgba(255, 255, 255, 0.9);
+            transform: scale(1.08);
+        }
+
+        /* Controles Flotantes */
+        .controles {
+            display: none;
+            position: fixed;
+            top: 25px;
+            right: 25px;
+            gap: 12px;
+            z-index: 20;
+        }
+
+        .btn-control {
+            padding: 10px 22px;
+            font-size: 0.95rem;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-control:hover {
+            background: #ffffff;
+            color: #000000;
+            transform: scale(1.05);
+        }
+
+        #btn-salir:hover {
+            background: rgba(255, 0, 85, 0.9);
+            border-color: #ff0055;
+            color: #ffffff;
+        }
+
+        /* Contenedor del Lienzo */
+        #canvas-container {
+            display: none;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Audio del Proyecto (musica20.mp3) -->
+    <audio id="miMusica" src="musica20.mp3" preload="auto" loop></audio>
+
+    <!-- Botón de Inicio Blanco -->
+    <button id="btn-inicio">Inicio</button>
+
+    <!-- Controles flotantes -->
+    <div class="controles" id="panel-controles">
+        <button class="btn-control" id="btn-audio">🔊 Sonido: ON</button>
+        <button class="btn-control" id="btn-salir">Salir</button>
+    </div>
+
+    <!-- Contenedor del lienzo -->
+    <div id="canvas-container">
+        <canvas id="bailarinesCanvas"></canvas>
+    </div>
+
+    <script>
+        const btnInicio = document.getElementById('btn-inicio');
+        const btnSalir = document.getElementById('btn-salir');
+        const btnAudio = document.getElementById('btn-audio');
+        const panelControles = document.getElementById('panel-controles');
+        const canvasContainer = document.getElementById('canvas-container');
+        const canvas = document.getElementById('bailarinesCanvas');
+        const ctx = canvas.getContext('2d');
+        const audioElement = document.getElementById('miMusica');
+
+        let animacionId = null;
+        let activo = false;
+
+        // Estados del Bucle: 'BAILANDO', 'HUYENDO', 'ESPERA'
+        let estado = 'BAILANDO';
+        let tiempoEstado = 0;
+
+        // Parámetros de la Pista de Baile
+        let pista = { cx: 0, cy: 0, radio: 220 };
+
+        // Parejas de Bailarines
+        let parejas = [
+            { x: 0, y: 0, anguloGiro: 0, desfase: 0 },
+            { x: 0, y: 0, anguloGiro: 0, desfase: Math.PI } // La 2ª pareja empieza enfrente
+        ];
+
+        let tiempoBaile = 0;
+
+        // Datos para la huida individual (4 personas)
+        let individuos = [];
+
+        function ajustarCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            pista.cx = canvas.width / 2;
+            pista.cy = canvas.height / 2;
+            pista.radio = Math.min(canvas.width, canvas.height) * 0.32;
+        }
+
+        window.addEventListener('resize', () => {
+            if (activo) ajustarCanvas();
+        });
+
+        // Control del Botón de Audio (ON/OFF)
+        btnAudio.addEventListener('click', (e) => {
+            e.stopPropagation();
+            audioElement.muted = !audioElement.muted;
+            btnAudio.textContent = audioElement.muted ? "🔇 Sonido: OFF" : "🔊 Sonido: ON";
+        });
+
+        // Iniciar Animación
+        btnInicio.addEventListener('click', () => {
+            btnInicio.style.display = 'none';
+            panelControles.style.display = 'flex';
+            canvasContainer.style.display = 'block';
+
+            ajustarCanvas();
+            reiniciarBailarines();
+            activo = true;
+
+            audioElement.currentTime = 0;
+            audioElement.muted = false;
+            btnAudio.textContent = "🔊 Sonido: ON";
+            audioElement.play().catch(err => console.log(err));
+
+            iniciarAnimacion();
+        });
+
+        // Salir
+        btnSalir.addEventListener('click', (e) => {
+            e.stopPropagation();
+            activo = false;
+            if (animacionId) cancelAnimationFrame(animacionId);
+
+            audioElement.pause();
+            audioElement.currentTime = 0;
+
+            canvasContainer.style.display = 'none';
+            panelControles.style.display = 'none';
+            btnInicio.style.display = 'block';
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
+        function reiniciarBailarines() {
+            estado = 'BAILANDO';
+            tiempoEstado = Date.now();
+            tiempoBaile = 0;
+            individuos = [];
+        }
+
+        // BUCLE PRINCIPAL
+        function iniciarAnimacion() {
+            if (!activo) return;
+
+            // Fondo negro limpio
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            let ahora = Date.now();
+
+            // DIBUJAR PISTA DE BAILE REDONDA EN EL CENTRO
+            dibujarPistaBaile();
+
+            // LÓGICA DE ESTADOS
+            if (estado === 'BAILANDO') {
+                tiempoBaile += 0.008; // Velocidad de baile más pausada y suave
+
+                parejas.forEach((p, idx) => {
+                    let anguloPista = tiempoBaile * 1.5 + p.desfase;
+                    let distCentro = pista.radio * 0.55;
+
+                    p.x = pista.cx + Math.cos(anguloPista) * distCentro;
+                    p.y = pista.cy + Math.sin(anguloPista) * distCentro;
+                    p.anguloGiro = tiempoBaile * 3.5;
+
+                    dibujarParejaBailando(p.x, p.y, p.anguloGiro);
+                });
+
+                // Cumplidos 10 segundos, huyen corriendo
+                if (ahora - tiempoEstado > 10000) {
+                    estado = 'HUYENDO';
+                    tiempoEstado = ahora;
+
+                    // Preparar 4 individuos para salir corriendo hacia las 4 esquinas
+                    let angulosHuida = [-2.3, -0.8, 0.8, 2.3];
+                    individuos = [];
+
+                    parejas.forEach((p, i) => {
+                        // Hombre de la pareja
+                        individuos.push({
+                            x: p.x - 15, y: p.y,
+                            vx: Math.cos(angulosHuida[i * 2]) * 12,
+                            vy: Math.sin(angulosHuida[i * 2]) * 12,
+                            esMujer: false
+                        });
+                        // Mujer de la pareja
+                        individuos.push({
+                            x: p.x + 15, y: p.y,
+                            vx: Math.cos(angulosHuida[i * 2 + 1]) * 12,
+                            vy: Math.sin(angulosHuida[i * 2 + 1]) * 12,
+                            esMujer: true
+                        });
+                    });
+                }
+            }
+            else if (estado === 'HUYENDO') {
+                let faseCarrera = (ahora - tiempoEstado) * 0.025;
+                let fueraDePantalla = 0;
+
+                individuos.forEach(ind => {
+                    ind.x += ind.vx;
+                    ind.y += ind.vy;
+
+                    dibujarFigura(ind.x, ind.y, ind.esMujer, faseCarrera, true);
+
+                    if (ind.x < -80 || ind.x > canvas.width + 80 || ind.y < -80 || ind.y > canvas.height + 80) {
+                        fueraDePantalla++;
+                    }
+                });
+
+                if (fueraDePantalla === individuos.length) {
+                    estado = 'ESPERA';
+                    tiempoEstado = ahora;
+                }
+            }
+            else if (estado === 'ESPERA') {
+                // Espera de 3 segundos con la pista vacía
+                if (ahora - tiempoEstado > 3000) {
+                    reiniciarBailarines();
+                }
+            }
+
+            animacionId = requestAnimationFrame(iniciarAnimacion);
+        }
+
+        // DIBUJAR PISTA DE BAILE REDONDA
+        function dibujarPistaBaile() {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(pista.cx, pista.cy, pista.radio, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+            ctx.fill();
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 18;
+            ctx.shadowColor = '#ffffff';
+            ctx.stroke();
+
+            // Detalle de línea interior
+            ctx.beginPath();
+            ctx.arc(pista.cx, pista.cy, pista.radio * 0.92, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // DIBUJAR PAREJA BAILANDO
+        function dibujarParejaBailando(cx, cy, angulo) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(angulo);
+
+            let radioGiro = 22;
+
+            // Bailarín (Hombre)
+            dibujarFigura(-radioGiro, 0, false, angulo * 1.5, false);
+            // Bailarina (Mujer)
+            dibujarFigura(radioGiro, 0, true, angulo * 1.5, false);
+
+            // Brazos unidos
+            ctx.beginPath();
+            ctx.moveTo(-radioGiro, -15);
+            ctx.lineTo(radioGiro, -15);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = '#ffffff';
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // DIBUJAR FIGURA INDIVIDUAL
+        function dibujarFigura(x, y, esMujer, fase, corriendo) {
+            ctx.save();
+            ctx.translate(x, y);
+
+            ctx.strokeStyle = '#ffffff';
+            ctx.fillStyle = '#ffffff';
+            ctx.lineWidth = 2.2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ffffff';
+
+            let oscPiernas = corriendo ? Math.sin(fase) * 16 : Math.sin(fase) * 6;
+            let oscBrazos = corriendo ? Math.cos(fase) * 16 : Math.cos(fase) * 6;
+
+            // Cabeza
+            ctx.beginPath();
+            ctx.arc(0, -28, 6, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Torso
+            ctx.beginPath();
+            ctx.moveTo(0, -22);
+            ctx.lineTo(0, -4);
+            ctx.stroke();
+
+            if (esMujer) {
+                // Falda acampanada
+                ctx.beginPath();
+                ctx.moveTo(0, -14);
+                ctx.lineTo(-10, -2);
+                ctx.lineTo(10, -2);
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // Brazos
+            ctx.beginPath();
+            if (corriendo) {
+                ctx.moveTo(0, -18);
+                ctx.lineTo(oscBrazos, -6);
+                ctx.moveTo(0, -18);
+                ctx.lineTo(-oscBrazos, -6);
+            } else {
+                ctx.moveTo(0, -18);
+                ctx.lineTo(-8, -8);
+                ctx.moveTo(0, -18);
+                ctx.lineTo(8, -8);
+            }
+            ctx.stroke();
+
+            // Piernas
+            ctx.beginPath();
+            ctx.moveTo(0, -2);
+            ctx.lineTo(oscPiernas, 18);
+            ctx.moveTo(0, -2);
+            ctx.lineTo(-oscPiernas, 18);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    </script>
+</body>
+</html>
